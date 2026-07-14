@@ -1,0 +1,12 @@
+# Ignore everything and selectively allow files
+*
+
+!.github/workflows/*.yml
+!.gitignore
+!action.yml
+!CODE_OF_CONDUCT.md
+!LICENSE
+!README.md
+
+# Recurse through sub-directories applying the same patterns
+!*/
