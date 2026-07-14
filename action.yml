@@ -1,0 +1,99 @@
+name: Release Note
+description: Generate a release note for your project
+author: purpleclay
+branding:
+  icon: file-text
+  color: purple
+
+inputs:
+  working-directory:
+    description: Directory containing the git repository to generate a release note for
+    required: false
+    default: ${{ github.workspace }}
+  version:
+    description: >-
+      Version of release-note to download. Defaults to the version this action release was tested against.
+    required: false
+    default: ""
+  token:
+    description: >-
+      GitHub token for API requests (release download, contributor
+      attribution and avatars)
+    required: false
+    default: ${{ github.token }}
+  output:
+    description: >-
+      Path the generated release note is written to. Defaults to a file under
+      the runner's temp directory — outside the workspace, so the working
+      tree stays clean (GoReleaser --clean, git status gates) and no later
+      step can accidentally commit it.
+    required: false
+    default: ""
+
+outputs:
+  notes-file:
+    description: Path to the generated release note
+    value: ${{ steps.generate.outputs.notes-file }}
+  version:
+    description: The release-note version that was executed
+    value: ${{ steps.download.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: download_release_note
+      id: download
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        REQUESTED_VERSION: ${{ inputs.version }}
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+
+        # The known-good CLI version for this action release. Bumped (and
+        # re-tested) as part of cutting a new action version, so consumers
+        # pinning the action get a tested pairing by default.
+        DEFAULT_VERSION="0.10.0"
+        version="${REQUESTED_VERSION:-$DEFAULT_VERSION}"
+
+        case "$(uname -s)/$(uname -m)" in
+          Linux/x86_64)   target="x86_64-unknown-linux-musl" ;;
+          Linux/aarch64)  target="aarch64-unknown-linux-musl" ;;
+          Darwin/x86_64)  target="x86_64-apple-darwin" ;;
+          Darwin/arm64)   target="aarch64-apple-darwin" ;;
+          *) echo "::error::unsupported runner platform: $(uname -s)/$(uname -m)"; exit 1 ;;
+        esac
+
+        archive="release-note-${version}-${target}.tar.gz"
+        workdir="${RUNNER_TEMP}/release-note"
+        mkdir -p "${workdir}" && cd "${workdir}"
+
+        gh release download "${version}" \
+          --repo purpleclay/release-note \
+          --pattern "${archive}"
+
+        tar -xzf "${archive}"
+        chmod +x release-note
+        echo "bin=${workdir}/release-note" >> "${GITHUB_OUTPUT}"
+        echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+    - name: generate_release_note
+      id: generate
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+        BIN: ${{ steps.download.outputs.bin }}
+        OUTPUT: ${{ inputs.output }}
+      run: |
+        set -euo pipefail
+        # Default resolved here rather than in the input declaration: runner
+        # context isn't reliably available in composite input defaults.
+        OUTPUT="${OUTPUT:-${RUNNER_TEMP}/release-note/notes.md}"
+        mkdir -p "$(dirname "${OUTPUT}")"
+
+        # release-note detects platform, repository, and tag from the CI
+        # environment.
+        "${BIN}" > "${OUTPUT}"
+        echo "notes-file=${OUTPUT}" >> "${GITHUB_OUTPUT}"

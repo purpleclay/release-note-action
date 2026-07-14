@@ -1,0 +1,104 @@
+name: ci
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: harden_runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
+        with:
+          egress-policy: audit
+
+      - name: checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: actionlint
+        uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 # v1.7.12
+
+      - name: zizmor
+        uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7
+        with:
+          persona: pedantic
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - ubuntu-24.04-arm
+          - macos-latest
+    steps:
+      - name: harden_runner
+        if: runner.os == 'Linux'
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
+        with:
+          egress-policy: audit
+
+      - name: checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: synthesise_release_history
+        env:
+          FIXTURE: ${{ runner.temp }}/fixture
+        run: |
+          set -euo pipefail
+          mkdir -p "${FIXTURE}" && cd "${FIXTURE}"
+          git init -q
+          git config user.name "ci"
+          git config user.email "ci@purpleclay.dev"
+          git commit --allow-empty -m "feat: add synthetic feature for note generation"
+          git commit --allow-empty -m "fix: resolve synthetic defect"
+          git commit --allow-empty -m "docs: synthetic documentation change"
+          git tag 0.1.0
+
+      - name: run_action
+        id: action
+        uses: ./
+        with:
+          working-directory: ${{ runner.temp }}/fixture
+
+      - name: assert_output
+        env:
+          FIXTURE: ${{ runner.temp }}/fixture
+          NOTES_FILE: ${{ steps.action.outputs.notes-file }}
+          VERSION: ${{ steps.action.outputs.version }}
+          OS: ${{ matrix.os }}
+        run: |
+          set -euo pipefail
+          test -s "${NOTES_FILE}" || { echo "::error::release note is missing or empty"; exit 1; }
+          test -n "${VERSION}" || { echo "::error::version output not set"; exit 1; }
+          # The default output location must not dirty the working tree
+          # beyond the generated note itself — this is the contract that
+          # keeps GoReleaser --clean (and any git cleanliness gate) happy
+          # in consuming release jobs.
+          test -z "$(git -C "${FIXTURE}" status --porcelain -- . ":(exclude)$(basename "${NOTES_FILE}")")" || { echo "::error::action dirtied the working tree"; git -C "${FIXTURE}" status --porcelain; exit 1; }
+          {
+            echo "### Generated release note (${VERSION}, ${OS})"
+            echo
+            cat "${NOTES_FILE}"
+          } >> "${GITHUB_STEP_SUMMARY}"
