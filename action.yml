@@ -31,10 +31,10 @@ inputs:
     default: ""
 
 outputs:
-  notes-file:
+  release-note-path:
     description: Path to the generated release note
     value: ${{ steps.generate.outputs.notes-file }}
-  version:
+  release-note-version:
     description: The release-note version that was executed
     value: ${{ steps.download.outputs.version }}
 
@@ -93,7 +93,6 @@ runs:
         OUTPUT="${OUTPUT:-${RUNNER_TEMP}/release-note/notes.md}"
         mkdir -p "$(dirname "${OUTPUT}")"
 
-        # release-note detects platform, repository, and tag from the CI
-        # environment.
+        # release-note detects platform, repository, and tag from the CI environment.
         "${BIN}" > "${OUTPUT}"
         echo "notes-file=${OUTPUT}" >> "${GITHUB_OUTPUT}"
