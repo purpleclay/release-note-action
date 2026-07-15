@@ -41,6 +41,9 @@ jobs:
         with:
           persona: pedantic
 
+      - name: typos
+        uses: crate-ci/typos@bee27e3a4fd1ea2111cf90ab89cd076c870fce14 # v1.48.0
+
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -88,8 +91,8 @@ jobs:
       - name: assert_output
         env:
           FIXTURE: ${{ runner.temp }}/fixture
-          NOTES_FILE: ${{ steps.action.outputs.notes-file }}
-          VERSION: ${{ steps.action.outputs.version }}
+          NOTES_FILE: ${{ steps.action.outputs.release-note-path }}
+          VERSION: ${{ steps.action.outputs.release-note-version }}
           OS: ${{ matrix.os }}
         run: |
           set -euo pipefail

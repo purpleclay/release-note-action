@@ -1,10 +1,14 @@
 # Ignore everything and selectively allow files
 *
 
+!.envrc
 !.github/workflows/*.yml
 !.gitignore
+!.zed/settings.json
 !action.yml
 !CODE_OF_CONDUCT.md
+!flake.lock
+!flake.nix
 !LICENSE
 !README.md
 
