@@ -19,6 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # Required by github/codeql-action/upload-sarif (run via zizmor-action)
+      # to publish the zizmor scan results as code scanning alerts.
+      security-events: write
     steps:
       - name: harden_runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
