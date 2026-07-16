@@ -24,7 +24,16 @@ jobs:
       - name: harden_runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
         with:
-          egress-policy: audit
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            auth.docker.io:443
+            ghcr.io:443
+            github.com:443
+            pkg-containers.githubusercontent.com:443
+            production.cloudflare.docker.com:443
+            registry-1.docker.io:443
+            release-assets.githubusercontent.com:443
 
       - name: checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -55,11 +64,39 @@ jobs:
           - ubuntu-24.04-arm
           - macos-latest
     steps:
-      - name: harden_runner
-        if: runner.os == 'Linux'
+      - name: harden_runner (ubuntu)
+        if: matrix.os == 'ubuntu-latest' || matrix.os == 'ubuntu-24.04-arm'
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
         with:
-          egress-policy: audit
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            github.com:443
+            release-assets.githubusercontent.com:443
+
+      - name: harden_runner (macos)
+        if: matrix.os == 'macos-latest'
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            *.apple.com:443
+            *.stepsecurity.io:443
+            0.pool.ntp.org:443
+            api.apple-cloudkit.com:443
+            api.github.com:443
+            apps.mzstatic.com:443
+            calendars.icloud.com:443
+            cp10.cloudflare.com:443
+            gateway.icloud.com:443
+            github.com:443
+            mask.icloud.com:443
+            metrics.icloud.com:443
+            ocsp.digicert.com:443
+            ocsp2.g.aaplimg.com:443
+            release-assets.githubusercontent.com:443
+            s.mzstatic.com:443
+            updates.cdn-apple.com:443
 
       - name: checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
