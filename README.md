@@ -50,6 +50,11 @@ See [action.yml](action.yml)
     # Optional. Default is github.token
     token:
 
+    # Verify the downloaded release-note checksum and attestation before
+    # execution. Requires release-note >= 0.10.1.
+    # Optional. Default is true
+    verify-attestation:
+
     # Path the generated release note is written to.
     # Optional. Defaults to a file under the runner's temp directory —
     # outside the workspace, so the working tree stays clean; set explicitly

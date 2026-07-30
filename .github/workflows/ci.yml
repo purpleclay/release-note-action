@@ -70,9 +70,13 @@ jobs:
         with:
           egress-policy: block
           allowed-endpoints: >
+            35.164.209.184:443
             api.github.com:443
             github.com:443
             release-assets.githubusercontent.com:443
+            tmaproduction.blob.core.windows.net:443
+            tuf-repo-cdn.sigstore.dev:443
+            tuf-repo.github.com:443
 
       - name: harden_runner (macos)
         if: matrix.os == 'macos-latest'
@@ -90,12 +94,17 @@ jobs:
             cp10.cloudflare.com:443
             gateway.icloud.com:443
             github.com:443
+            mask-api.icloud.com:443
             mask.icloud.com:443
+            mesu-cdn.origin-apple.com.akadns.net:443
             metrics.icloud.com:443
             ocsp.digicert.com:443
             ocsp2.g.aaplimg.com:443
             release-assets.githubusercontent.com:443
             s.mzstatic.com:443
+            tmaproduction.blob.core.windows.net:443
+            tuf-repo-cdn.sigstore.dev:443
+            tuf-repo.github.com:443
             updates.cdn-apple.com:443
 
       - name: checkout

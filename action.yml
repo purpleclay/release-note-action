@@ -21,6 +21,12 @@ inputs:
       attribution and avatars)
     required: false
     default: ${{ github.token }}
+  verify-attestation:
+    description: >-
+      Verify the downloaded release-note checksum and attestation before
+      execution. Requires release-note >= 0.10.1.
+    required: false
+    default: "true"
   output:
     description: >-
       Path the generated release note is written to. Defaults to a file under
@@ -47,6 +53,7 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       env:
         REQUESTED_VERSION: ${{ inputs.version }}
+        VERIFY_ATTESTATION: ${{ inputs.verify-attestation }}
         GH_TOKEN: ${{ inputs.token }}
       run: |
         set -euo pipefail
@@ -54,7 +61,7 @@ runs:
         # The known-good CLI version for this action release. Bumped (and
         # re-tested) as part of cutting a new action version, so consumers
         # pinning the action get a tested pairing by default.
-        DEFAULT_VERSION="0.10.0"
+        DEFAULT_VERSION="0.10.1"
         version="${REQUESTED_VERSION:-$DEFAULT_VERSION}"
 
         case "$(uname -s)/$(uname -m)" in
@@ -69,9 +76,30 @@ runs:
         workdir="${RUNNER_TEMP}/release-note"
         mkdir -p "${workdir}" && cd "${workdir}"
 
-        gh release download "${version}" \
-          --repo purpleclay/release-note \
-          --pattern "${archive}"
+        if [ "${VERIFY_ATTESTATION}" = "true" ]; then
+          # checksums.txt and attestations were only introduced in 0.10.1 —
+          # pinning an older version with verification left enabled fails
+          # closed here, rather than silently skipping the check.
+          gh release download "${version}" \
+            --repo purpleclay/release-note \
+            --pattern "${archive}" \
+            --pattern "checksums.txt"
+
+          # macOS has no sha256sum; shasum -a 256 is the portable equivalent.
+          # Only the archive's own line is extracted, so neither tool needs
+          # to tolerate the other three platform entries being absent.
+          checksum_bin="sha256sum"
+          [ "$(uname -s)" = "Darwin" ] && checksum_bin="shasum -a 256"
+          grep "  ${archive}\$" checksums.txt | ${checksum_bin} --check
+
+          gh attestation verify "${archive}" \
+            --repo purpleclay/release-note \
+            --signer-workflow purpleclay/release-workflows/.github/workflows/release-rust.yml
+        else
+          gh release download "${version}" \
+            --repo purpleclay/release-note \
+            --pattern "${archive}"
+        fi
 
         tar -xzf "${archive}"
         chmod +x release-note
