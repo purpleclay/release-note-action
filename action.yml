@@ -84,6 +84,7 @@ runs:
             --repo purpleclay/release-note \
             --pattern "${archive}" \
             --pattern "checksums.txt"
+          echo "::notice::downloaded ${archive}"
 
           # macOS has no sha256sum; shasum -a 256 is the portable equivalent.
           # Only the archive's own line is extracted, so neither tool needs
@@ -91,14 +92,36 @@ runs:
           checksum_bin="sha256sum"
           [ "$(uname -s)" = "Darwin" ] && checksum_bin="shasum -a 256"
           grep "  ${archive}\$" checksums.txt | ${checksum_bin} --check
+          echo "::notice::checksum verified for ${archive}"
 
-          gh attestation verify "${archive}" \
+          attestation_json="$(gh attestation verify "${archive}" \
             --repo purpleclay/release-note \
-            --signer-workflow purpleclay/release-workflows/.github/workflows/release-rust.yml
+            --signer-workflow purpleclay/release-workflows/.github/workflows/release-rust.yml \
+            --format json)"
+
+          # Every entry (not just the first) is searched for a subject
+          # matching the archive, since gh attestation verify can return more
+          # than one result. jq -e requires exactly one match with a
+          # non-empty digest and signer, and fails the step (via set -e) on
+          # zero matches, ambiguous matches, or incomplete metadata — rather
+          # than emitting a misleading success notice.
+          attestation_match="$(printf '%s' "${attestation_json}" | jq -e -r --arg name "${archive}" '
+            [ .[] as $entry
+              | ($entry.verificationResult.statement.subject[]? | select(.name == $name)) as $subject
+              | {digest: $subject.digest.sha256, signer: $entry.verificationResult.signature.certificate.buildSignerURI}
+            ]
+            | if (length == 1) and (.[0].digest | length > 0) and (.[0].signer | length > 0)
+              then "\(.[0].digest)\t\(.[0].signer)"
+              else null
+              end
+          ')"
+          IFS=$'\t' read -r digest signer <<< "${attestation_match}"
+          echo "::notice::attestation verified for ${archive} (sha256:${digest}, signed by ${signer})"
         else
           gh release download "${version}" \
             --repo purpleclay/release-note \
             --pattern "${archive}"
+          echo "::notice::downloaded ${archive}"
         fi
 
         tar -xzf "${archive}"
