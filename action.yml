@@ -63,7 +63,7 @@ runs:
         # pinning the action get a tested pairing by default.
         #
         # renovate: datasource=github-releases depName=purpleclay/release-note
-        DEFAULT_VERSION="0.10.1"
+        DEFAULT_VERSION="0.11.0"
         version="${REQUESTED_VERSION:-$DEFAULT_VERSION}"
 
         case "$(uname -s)/$(uname -m)" in
