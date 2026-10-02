@@ -61,6 +61,8 @@ runs:
         # The known-good CLI version for this action release. Bumped (and
         # re-tested) as part of cutting a new action version, so consumers
         # pinning the action get a tested pairing by default.
+        #
+        # renovate: datasource=github-releases depName=purpleclay/release-note
         DEFAULT_VERSION="0.10.1"
         version="${REQUESTED_VERSION:-$DEFAULT_VERSION}"
 
