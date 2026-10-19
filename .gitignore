@@ -2,6 +2,7 @@
 *
 
 !.envrc
+!.github/actionlint.yaml
 !.github/renovate.json
 !.github/workflows/*.yml
 !.gitignore
