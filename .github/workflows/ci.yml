@@ -16,7 +16,7 @@ concurrency:
 jobs:
   lint:
     name: lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read # Needed by checkout to fetch the repository
       security-events: write # Needed by zizmor-action to publish scan results as code scanning alerts
@@ -60,17 +60,16 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-latest
-          - ubuntu-24.04-arm
-          - macos-latest
+          - ubuntu-26.04
+          - ubuntu-26.04-arm
+          - macos-26
     steps:
       - name: harden_runner (ubuntu)
-        if: matrix.os == 'ubuntu-latest' || matrix.os == 'ubuntu-24.04-arm'
+        if: matrix.os == 'ubuntu-26.04' || matrix.os == 'ubuntu-26.04-arm'
         uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: block
           allowed-endpoints: >
-            35.164.209.184:443
             api.github.com:443
             github.com:443
             release-assets.githubusercontent.com:443
@@ -79,33 +78,17 @@ jobs:
             tuf-repo.github.com:443
 
       - name: harden_runner (macos)
-        if: matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-26'
         uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: block
           allowed-endpoints: >
-            *.apple.com:443
-            *.stepsecurity.io:443
-            0.pool.ntp.org:443
-            api.apple-cloudkit.com:443
             api.github.com:443
-            apps.mzstatic.com:443
-            calendars.icloud.com:443
-            cp10.cloudflare.com:443
-            gateway.icloud.com:443
             github.com:443
-            mask-api.icloud.com:443
-            mask.icloud.com:443
-            mesu-cdn.origin-apple.com.akadns.net:443
-            metrics.icloud.com:443
-            ocsp.digicert.com:443
-            ocsp2.g.aaplimg.com:443
             release-assets.githubusercontent.com:443
-            s.mzstatic.com:443
             tmaproduction.blob.core.windows.net:443
             tuf-repo-cdn.sigstore.dev:443
             tuf-repo.github.com:443
-            updates.cdn-apple.com:443
 
       - name: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -128,7 +111,7 @@ jobs:
 
       - name: run_action
         id: action
-        uses: ./
+        uses: $/
         with:
           working-directory: ${{ runner.temp }}/fixture
 
