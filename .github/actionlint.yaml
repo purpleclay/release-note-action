@@ -6,6 +6,6 @@ self-hosted-runner:
 
 # actionlint v1.7.12 predates GitHub's self-repository ($/) uses: syntax
 paths:
-  .github/workflows/ci.yml:
+  .github/workflows/*.yml:
     ignore:
       - 'specifying action "\$/" in invalid format'
