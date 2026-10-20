@@ -120,11 +120,13 @@ jobs:
           FIXTURE: ${{ runner.temp }}/fixture
           NOTES_FILE: ${{ steps.action.outputs.release-note-path }}
           VERSION: ${{ steps.action.outputs.release-note-version }}
+          RELEASE_URL: ${{ steps.action.outputs.release-url }}
           OS: ${{ matrix.os }}
         run: |
           set -euo pipefail
           test -s "${NOTES_FILE}" || { echo "::error::release note is missing or empty"; exit 1; }
           test -n "${VERSION}" || { echo "::error::version output not set"; exit 1; }
+          test -z "${RELEASE_URL}" || { echo "::error::release-url set without publish"; exit 1; }
           # The default output location must not dirty the working tree
           # beyond the generated note itself — this is the contract that
           # keeps GoReleaser --clean (and any git cleanliness gate) happy
@@ -135,3 +137,112 @@ jobs:
             echo
             cat "${NOTES_FILE}"
           } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: run_action_publish_without_tag
+        id: publish_without_tag
+        continue-on-error: true
+        uses: $/
+        with:
+          working-directory: ${{ runner.temp }}/fixture
+          publish: "true"
+
+      - name: assert_publish_requires_tag
+        env:
+          OUTCOME: ${{ steps.publish_without_tag.outcome }}
+          VERSION: ${{ steps.publish_without_tag.outputs.release-note-version }}
+        run: |
+          set -euo pipefail
+          # CI runs on branches, so publish must fail. An empty version shows
+          # it failed at the tag check, before release-note was downloaded.
+          test "${OUTCOME}" = "failure" || { echo "::error::publish did not fail on a non-tag ref (outcome: ${OUTCOME})"; exit 1; }
+          test -z "${VERSION}" || { echo "::error::publish failed after the download, not at the tag check"; exit 1; }
+
+      - name: run_action_relative_output
+        id: relative_output
+        uses: $/
+        with:
+          working-directory: ${{ runner.temp }}/fixture
+          output: notes.md
+
+      - name: assert_relative_output_resolved
+        env:
+          EXPECTED: ${{ runner.temp }}/fixture/notes.md
+          NOTES_FILE: ${{ steps.relative_output.outputs.release-note-path }}
+        run: |
+          set -euo pipefail
+          # A relative output is written under working-directory, so the path
+          # handed to later steps (and publish_release) must be absolute.
+          test "${NOTES_FILE}" = "${EXPECTED}" || { echo "::error::expected release-note-path '${EXPECTED}', got '${NOTES_FILE}'"; exit 1; }
+          test -s "${NOTES_FILE}" || { echo "::error::release note is missing or empty"; exit 1; }
+
+  publish:
+    name: publish
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+      - name: harden_runner
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: test_publish_release
+        run: |
+          set -euo pipefail
+          # Runs the publish_release script against a fake gh, so every API
+          # outcome is covered without creating real releases.
+          work="${RUNNER_TEMP}/publish"
+          mkdir -p "${work}/bin"
+          yq '.runs.steps[] | select(.name == "publish_release") | .run' action.yml > "${work}/publish.sh"
+
+          cat > "${work}/bin/gh" <<'GH'
+          #!/usr/bin/env bash
+          echo "$*" >> "${GH_LOG}"
+          case "$1 $2" in
+            "api -i")
+              echo "HTTP/2.0 ${FAKE_STATUS}"
+              [ "${FAKE_STATUS}" = "200" ] ;;
+            "release view"|"release create")
+              echo "https://github.com/${REPO}/releases/tag/$3" ;;
+            *)
+              echo "unexpected gh call: $*" >&2; exit 99 ;;
+          esac
+          GH
+          chmod +x "${work}/bin/gh"
+
+          # Usage: publish <http status> <title>. Leaves the gh call log in
+          # ${work}/gh.log and the step outputs in ${work}/out.
+          publish() {
+            : > "${work}/gh.log"; : > "${work}/out"
+            env PATH="${work}/bin:${PATH}" GH_LOG="${work}/gh.log" GITHUB_OUTPUT="${work}/out" \
+              FAKE_STATUS="$1" TITLE="$2" REPO=purpleclay/example TAG=v1.2.3 NOTES_FILE=/tmp/notes.md \
+              bash "${work}/publish.sh"
+          }
+          fail() { echo "::error::$*"; cat "${work}/gh.log"; exit 1; }
+          url="url=https://github.com/purpleclay/example/releases/tag/v1.2.3"
+
+          # 404: the release is created, titled with the tag by default
+          publish 404 "" || fail "404: publish failed"
+          grep -qxF "release create v1.2.3 --repo purpleclay/example --title v1.2.3 --notes-file /tmp/notes.md --verify-tag" "${work}/gh.log" || fail "404: unexpected release create call"
+          grep -qxF "${url}" "${work}/out" || fail "404: release-url not set"
+
+          # 404 with a title: the title is used instead of the tag
+          publish 404 "Custom title" || fail "404 + title: publish failed"
+          grep -qF -- "--title Custom title --notes-file" "${work}/gh.log" || fail "404 + title: title not used"
+
+          # 200: the existing release is returned and never changed
+          publish 200 "" || fail "200: publish failed"
+          ! grep -qE '^release (create|edit|delete|upload)' "${work}/gh.log" || fail "200: existing release was changed"
+          grep -qxF "${url}" "${work}/out" || fail "200: release-url not set"
+
+          # Anything else: fail without creating a release or setting a URL
+          if publish 500 ""; then fail "500: publish did not fail"; fi
+          ! grep -q '^release create' "${work}/gh.log" || fail "500: release was created"
+          test ! -s "${work}/out" || fail "500: release-url was set"

@@ -7,20 +7,37 @@ A GitHub Action for [release-note](https://github.com/purpleclay/release-note): 
 
 ## Usage
 
-Generate and publish the generated release note however you choose:
+Generate a release note on a tag push and publish it as a GitHub release:
 
 ```yaml
-- uses: actions/checkout@v7
-  with:
-    # release-note requires the full commit history to generate the note.
-    fetch-depth: 0
+on:
+  push:
+    tags:
+      - "v*.*.*"
 
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Needed to create the GitHub release
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # release-note requires the full commit history to generate the note.
+          fetch-depth: 0
+
+      - uses: purpleclay/release-note-action@v0
+        with:
+          publish: true
+```
+
+If a release for the tag already exists, it is left untouched and its URL is returned. Publishing is off by default, so tools that create the release themselves (such as GoReleaser, or a `gh release create` that attaches assets) can consume `release-note-path` instead:
+
+```yaml
 - uses: purpleclay/release-note-action@v0
   id: release_note
 
-# Requires `permissions: contents: write` on this job — the default
-# github.token is read-only unless the job/workflow grants it.
-- run: gh release create "${GITHUB_REF_NAME}" --notes-file "${NOTES_FILE}"
+- run: gh release create "${GITHUB_REF_NAME}" dist/* --notes-file "${NOTES_FILE}"
   env:
     GH_TOKEN: ${{ github.token }}
     NOTES_FILE: ${{ steps.release_note.outputs.release-note-path }}
@@ -46,7 +63,7 @@ See [action.yml](action.yml)
     version:
 
     # Token for the release download and GitHub API requests (contributor
-    # attribution, avatars).
+    # attribution, avatars, and publishing the release).
     # Optional. Default is github.token
     token:
 
@@ -60,6 +77,16 @@ See [action.yml](action.yml)
     # outside the workspace, so the working tree stays clean; set explicitly
     # to write in-workspace (e.g. a committed CHANGELOG).
     output:
+
+    # Publish the generated release note as a GitHub release for the current
+    # tag. Requires a tag ref and `contents: write`. An existing release for
+    # the tag is left untouched.
+    # Optional. Default is false
+    publish:
+
+    # Title of the published release.
+    # Optional. Default is the tag name
+    title:
 ```
 
 ## Outputs
@@ -68,6 +95,7 @@ See [action.yml](action.yml)
 | ---------------------- | ------------------------------------------------------------------------------- |
 | `release-note-path`    | Path to the generated release note, ready for `gh release create --notes-file`. |
 | `release-note-version` | The release-note version that was executed.                                     |
+| `release-url`          | URL of the published release. Empty when `publish` is false.                    |
 
 > [!IMPORTANT]
 > The note's content is exposed only as a file, never as a step output. Release notes embed commit messages, which can be attacker-influenced in any repo accepting outside contributions — interpolating that into `${{ }}` in a shell step is a classic Actions script-injection vector. Always consume the path.
