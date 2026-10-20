@@ -18,7 +18,7 @@ inputs:
   token:
     description: >-
       GitHub token for API requests (release download, contributor
-      attribution and avatars)
+      attribution and avatars, and publishing the release)
     required: false
     default: ${{ github.token }}
   verify-attestation:
@@ -35,6 +35,17 @@ inputs:
       step can accidentally commit it.
     required: false
     default: ""
+  publish:
+    description: >-
+      Publish the generated release note as a GitHub release for the current
+      tag. Requires a tag ref and `contents: write`. An existing release for
+      the tag is left untouched.
+    required: false
+    default: "false"
+  title:
+    description: Title of the published release. Defaults to the tag name.
+    required: false
+    default: ""
 
 outputs:
   release-note-path:
@@ -43,10 +54,27 @@ outputs:
   release-note-version:
     description: The release-note version that was executed
     value: ${{ steps.download.outputs.version }}
+  release-url:
+    description: URL of the published release. Empty when `publish` is false.
+    value: ${{ steps.publish.outputs.url }}
 
 runs:
   using: composite
   steps:
+    - name: validate_publish
+      if: inputs.publish == 'true'
+      shell: bash
+      env:
+        REF_TYPE: ${{ github.ref_type }}
+        REF_NAME: ${{ github.ref_name }}
+      run: |
+        set -euo pipefail
+        # Checked before the download so a misconfigured trigger fails fast.
+        if [ "${REF_TYPE}" != "tag" ]; then
+          echo "::error::publish requires a tag ref (got ref_type='${REF_TYPE}', ref_name='${REF_NAME}')"
+          exit 1
+        fi
+
     - name: download_release_note
       id: download
       shell: bash
@@ -82,10 +110,14 @@ runs:
           # checksums.txt and attestations were only introduced in 0.10.1 —
           # pinning an older version with verification left enabled fails
           # closed here, rather than silently skipping the check.
+          #
+          # --clobber lets the action run more than once in a job; whatever is
+          # overwritten is re-verified below.
           gh release download "${version}" \
             --repo purpleclay/release-note \
             --pattern "${archive}" \
-            --pattern "checksums.txt"
+            --pattern "checksums.txt" \
+            --clobber
           echo "::notice::downloaded ${archive}"
 
           # macOS has no sha256sum; shasum -a 256 is the portable equivalent.
@@ -122,7 +154,8 @@ runs:
         else
           gh release download "${version}" \
             --repo purpleclay/release-note \
-            --pattern "${archive}"
+            --pattern "${archive}" \
+            --clobber
           echo "::notice::downloaded ${archive}"
         fi
 
@@ -145,7 +178,49 @@ runs:
         # context isn't reliably available in composite input defaults.
         OUTPUT="${OUTPUT:-${RUNNER_TEMP}/release-note/notes.md}"
         mkdir -p "$(dirname "${OUTPUT}")"
+        # A relative output resolves against working-directory; later steps
+        # (including publish_release) run elsewhere, so hand out an absolute path.
+        OUTPUT="$(cd "$(dirname "${OUTPUT}")" && pwd)/$(basename "${OUTPUT}")"
 
         # release-note detects platform, repository, and tag from the CI environment.
         "${BIN}" > "${OUTPUT}"
         echo "notes-file=${OUTPUT}" >> "${GITHUB_OUTPUT}"
+
+    - name: publish_release
+      id: publish
+      if: inputs.publish == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        REPO: ${{ github.repository }}
+        TAG: ${{ github.ref_name }}
+        TITLE: ${{ inputs.title }}
+        NOTES_FILE: ${{ steps.generate.outputs.notes-file }}
+      run: |
+        set -euo pipefail
+        # Branch on the REST API's HTTP status rather than gh's "release not
+        # found" wording, which isn't a stable interface. pipefail propagates
+        # gh api's non-zero exit on a 404, so `|| true` keeps the script alive
+        # for the case below.
+        http_status="$(gh api -i "repos/${REPO}/releases/tags/${TAG}" 2>/dev/null | head -n1 | awk '{print $2}')" || true
+
+        case "${http_status}" in
+          200)
+            # Never modified: with immutable releases there is no way back.
+            echo "::notice::release for '${TAG}' already exists; nothing to publish"
+            url="$(gh release view "${TAG}" --repo "${REPO}" --json url --jq '.url')"
+            ;;
+          404)
+            url="$(gh release create "${TAG}" \
+              --repo "${REPO}" \
+              --title "${TITLE:-${TAG}}" \
+              --notes-file "${NOTES_FILE}" \
+              --verify-tag)"
+            echo "::notice::published release ${url}"
+            ;;
+          *)
+            echo "::error::could not confirm whether a release for '${TAG}' already exists (HTTP ${http_status:-unknown})"
+            exit 1
+            ;;
+        esac
+        echo "url=${url}" >> "${GITHUB_OUTPUT}"
