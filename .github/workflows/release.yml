@@ -1,0 +1,75 @@
+name: release
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    environment: release
+    permissions:
+      contents: write # Needed by the action to create the GitHub release
+    steps:
+      - name: harden_runner
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            cafe.github.com:443
+            github.com:443
+            release-assets.githubusercontent.com:443
+            tmaproduction.blob.core.windows.net:443
+            tuf-repo-cdn.sigstore.dev:443
+            tuf-repo.github.com:443
+
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: validate_tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # The tag trigger is a glob, so "v*.*.*" also matches tags such as
+          # "vfoo.bar.baz". Stop before anything is published.
+          if ! [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tag '${TAG}' is not a valid release tag; expected vX.Y.Z (see RELEASE.md#versioning)"
+            exit 1
+          fi
+
+      - name: verify_tag_signature
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # --verify-tag only checks that the tag exists, not who signed it.
+          # Import purpleclay's keys alone into an isolated keyring, so a
+          # passing check means purpleclay signed this tag.
+          export GNUPGHOME
+          GNUPGHOME="$(mktemp -d)"
+          gh api users/purpleclay/gpg_keys --jq '.[].raw_key' | gpg --batch --import
+          if ! git verify-tag "${TAG}"; then
+            echo "::error::tag '${TAG}' is not signed by an authorized signer (purpleclay)"
+            exit 1
+          fi
+
+      # Self-repository syntax resolves to the tagged commit, so each release
+      # generates and publishes its notes with the code it ships.
+      - name: release_note
+        uses: $/
+        with:
+          publish: true
